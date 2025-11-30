@@ -1,0 +1,37 @@
+# Runtime data - DO NOT COMMIT
+db/
+volumes/
+persistent_storage/
+deployments/
+uploads/
+deployment_configs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+
+# Logs
+*.log
+deployment.log
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store

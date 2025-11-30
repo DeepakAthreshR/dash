@@ -1,0 +1,138 @@
+
+
+services:
+  # Backend Instance 1
+  backend-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-1
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=postgresql
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
+      - CONTAINER_MEMORY_LIMIT=512m
+      - CONTAINER_CPU_LIMIT=0.5
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend/db:/app/db
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Backend Instance 2
+  backend-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-2
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=postgresql
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
+      - CONTAINER_MEMORY_LIMIT=512m
+      - CONTAINER_CPU_LIMIT=0.5
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend/db:/app/db
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Backend Instance 3
+  backend-3:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-3
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=postgresql
+      - DATABASE_URL=${DATABASE_URL}
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
+      - CONTAINER_MEMORY_LIMIT=512m
+      - CONTAINER_CPU_LIMIT=0.5
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./backend/db:/app/db
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  # Frontend (Dash Dashboard)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: frontend
+    
+    restart: unless-stopped
+    networks:
+      - deployment-network
+
+  # Load Balancer (Nginx)
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-lb
+    ports:
+      - "5030:80"
+      - "443:443"
+    volumes:
+      # Ensure you have copied the nginx folder from cursor to dash/nginx
+      - ./nginx/nginx-lb.conf:/etc/nginx/nginx.conf:ro
+      - /etc/nginx/conf.d
+    depends_on:
+      - backend-1
+      - backend-2
+      - backend-3
+      - frontend
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+networks:
+  deployment-network:
+    driver: bridge

@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (free tier compatible)
+  postgres:
+    image: postgres:15-alpine
+    container_name: deployment-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-deployments}
+      POSTGRES_USER: ${POSTGRES_USER:-deploy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deploy}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - deployment-network
+
+  # Redis for caching and rate limiting (optional, can use in-memory)
+  redis:
+    image: redis:7-alpine
+    container_name: deployment-redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - deployment-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Backend API (scalable)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: deployment-backend
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - ./backend/db:/app/db
+      - ./backend/volumes:/app/volumes
+      - ./backend/persistent_storage:/app/persistent_storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=postgresql
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-deploy}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-deployments}
+      - DB_POOL_MIN=2
+      - DB_POOL_MAX=10
+      - CONTAINER_MEMORY_LIMIT=512m
+      - CONTAINER_CPU_LIMIT=0.5
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change_this_secret_key_in_production}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Frontend (nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: deployment-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - deployment-network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
+  # Nginx Reverse Proxy (for load balancing)
+  nginx:
+    image: nginx:alpine
+    container_name: deployment-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - deployment-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  deployment-network:
+    driver: bridge
+

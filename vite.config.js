@@ -16,6 +16,21 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 2000
   },
+  server: {
+    // Proxy setup for Cursor Deployment Platform Backend (via Docker Load Balancer)
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5030', // Points to nginx-lb mapped port
+        changeOrigin: true,
+        secure: false
+      },
+      '/deploy': {
+        target: 'http://localhost:5030', // Points to nginx-lb mapped port
+        changeOrigin: true,
+        secure: false
+      }
+    }
+  },
   resolve: {
     alias: {
       app: path.resolve(__dirname, "src/app")

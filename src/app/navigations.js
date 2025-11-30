@@ -1,5 +1,7 @@
 const navigations = [
-  { name: "Page 1", path: "/dashboard/default", icon: "dashboard" },
+  // Updated main navigation item for the Deployment Platform
+  { name: "Deployments", path: "/dashboard/deployment", icon: "cloud_upload" },
+  
   { label: "PAGES", type: "label" },
   {
     name: "Page 2",
