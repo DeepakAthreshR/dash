@@ -1,6 +1,43 @@
 
 
 services:
+  # Shared Redis for Job Queue (Required for scalability)
+  redis:
+    image: redis:alpine
+    container_name: deployment-redis-scale
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - deployment-network
+
+  # Scalable Workers
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python worker.py
+    volumes:
+      - ./backend:/app
+      - ./backend/db:/app/db  # Mount DB folder to persist SQLite file
+      - ./backend/deployments:/app/deployments
+      - ./backend/uploads:/app/uploads
+      - ./backend/persistent_storage:/app/persistent_storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+      - DATABASE_TYPE=sqlite  # Explicitly set to SQLite
+      - REDIS_URL=redis://redis:6379
+      - CONTAINER_MEMORY_LIMIT=512m
+      - CONTAINER_CPU_LIMIT=0.5
+    depends_on:
+      - redis
+    networks:
+      - deployment-network
+    deploy:
+      replicas: 4
+
   # Backend Instance 1
   backend-1:
     build:
@@ -10,8 +47,8 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
-      - DATABASE_TYPE=postgresql
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_TYPE=sqlite  # Explicitly set to SQLite
+      - REDIS_URL=redis://redis:6379
       - DB_POOL_MIN=2
       - DB_POOL_MAX=10
       - CONTAINER_MEMORY_LIMIT=512m
@@ -20,18 +57,15 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./backend/db:/app/db
+      - ./backend/db:/app/db  # Important: Share DB folder across instances
+      - ./backend/deployments:/app/deployments
+      - ./backend/uploads:/app/uploads
+      - ./backend/persistent_storage:/app/persistent_storage
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - deployment-network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
 
   # Backend Instance 2
   backend-2:
@@ -42,28 +76,21 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
-      - DATABASE_TYPE=postgresql
-      - DATABASE_URL=${DATABASE_URL}
-      - DB_POOL_MIN=2
-      - DB_POOL_MAX=10
-      - CONTAINER_MEMORY_LIMIT=512m
-      - CONTAINER_CPU_LIMIT=0.5
+      - DATABASE_TYPE=sqlite
+      - REDIS_URL=redis://redis:6379
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backend/db:/app/db
+      - ./backend/deployments:/app/deployments
+      - ./backend/uploads:/app/uploads
+      - ./backend/persistent_storage:/app/persistent_storage
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - deployment-network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
 
   # Backend Instance 3
   backend-3:
@@ -74,41 +101,33 @@ services:
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
-      - DATABASE_TYPE=postgresql
-      - DATABASE_URL=${DATABASE_URL}
-      - DB_POOL_MIN=2
-      - DB_POOL_MAX=10
-      - CONTAINER_MEMORY_LIMIT=512m
-      - CONTAINER_CPU_LIMIT=0.5
+      - DATABASE_TYPE=sqlite
+      - REDIS_URL=redis://redis:6379
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
       - CORS_ORIGINS=${CORS_ORIGINS}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./backend/db:/app/db
+      - ./backend/deployments:/app/deployments
+      - ./backend/uploads:/app/uploads
+      - ./backend/persistent_storage:/app/persistent_storage
+    depends_on:
+      - redis
     restart: unless-stopped
     networks:
       - deployment-network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 4G
-        reservations:
-          cpus: '1'
-          memory: 2G
 
-  # Frontend (Dash Dashboard)
+  # Frontend
   frontend:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: frontend
-    
     restart: unless-stopped
     networks:
       - deployment-network
 
-  # Load Balancer (Nginx)
+  # Load Balancer
   nginx-lb:
     image: nginx:alpine
     container_name: nginx-lb
@@ -116,7 +135,6 @@ services:
       - "5030:80"
       - "443:443"
     volumes:
-      # Ensure you have copied the nginx folder from cursor to dash/nginx
       - ./nginx/nginx-lb.conf:/etc/nginx/nginx.conf:ro
       - /etc/nginx/conf.d
     depends_on:
@@ -127,11 +145,10 @@ services:
     restart: unless-stopped
     networks:
       - deployment-network
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 512M
+
+volumes:
+  redis_data:
+    driver: local
 
 networks:
   deployment-network:

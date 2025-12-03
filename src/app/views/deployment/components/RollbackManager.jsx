@@ -79,7 +79,10 @@ function RollbackManager({ deploymentId, versions, onRollback }) {
             <div style={styles.versionInfo}>
               <div style={styles.infoRow}>
                 <span style={styles.infoLabel}>Container ID:</span>
-                <code style={styles.infoValue}>{version.containerId.substring(0, 12)}</code>
+                <code style={styles.infoValue}>
+                  {/* ✅ FIX: Check if containerId exists before substring */}
+                  {version.containerId ? version.containerId.substring(0, 12) : 'Pending...'}
+                </code>
               </div>
               <div style={styles.infoRow}>
                 <span style={styles.infoLabel}>Deployed:</span>
@@ -100,10 +103,10 @@ function RollbackManager({ deploymentId, versions, onRollback }) {
                 e.stopPropagation();
                 handleRollback(version.version);
               }}
-              disabled={loading}
+              disabled={loading || !version.containerId} // Disable if no container
               style={{
                 ...styles.rollbackBtn,
-                ...(loading ? styles.rollbackBtnDisabled : {})
+                ...(loading || !version.containerId ? styles.rollbackBtnDisabled : {})
               }}
             >
               {loading ? '⏳ Rolling back...' : `⏮️ Rollback to v${version.version}`}

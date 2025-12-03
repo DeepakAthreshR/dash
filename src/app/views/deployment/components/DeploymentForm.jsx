@@ -106,12 +106,43 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
     setBuildLogs(prev => [...prev, { type, message, timestamp }]);
   };
 
-  // --- 🚀 AUTO DETECTION LOGIC ---
+  // --- Reusable Stream Processor ---
+  const processStreamResponse = async (response) => {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'log' || data.type === 'info') addLog('info', data.message);
+            else if (data.type === 'success') addLog('success', data.message);
+            else if (data.type === 'error') addLog('error', data.message);
+            else if (data.type === 'done') {
+              if (data.success) {
+                setStatus({ type: 'success', message: '✅ Deployment successful!' });
+                onDeploy(data.deployment);
+              } else {
+                setStatus({ type: 'error', message: `❌ Deployment failed: ${data.error}` });
+              }
+            }
+          } catch (e) { console.error('Parse error:', e); }
+        }
+      }
+    }
+  };
+
   const runDetection = async (sourceType, payload) => {
     setIsDetecting(true);
     setDetectionResult(null);
-    // Silent status update (optional, so it doesn't annoy user)
-    // setStatus({ type: 'info', message: '🔍 Analyzing project structure...' }); 
 
     try {
       let response;
@@ -128,11 +159,8 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
 
       if (response.data && response.data.success) {
         const { detection, suggestions } = response.data;
-        
-        // 1. Auto-switch Deployment Type
         setDeploymentType(detection.type);
         
-        // 2. Auto-fill Configuration
         if (detection.type === 'static') {
           setStaticConfig(prev => ({
             ...prev,
@@ -155,7 +183,6 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
       }
     } catch (error) {
       console.error('Detection failed:', error);
-      // Don't error blocking-ly, just let them manually configure
     } finally {
       setIsDetecting(false);
     }
@@ -165,18 +192,14 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
     const idx = e.target.value;
     if (idx !== '') {
       const selectedRepo = githubRepos[idx];
-      const url = selectedRepo.clone_url;
-      setGithubRepo(url);
+      setGithubRepo(selectedRepo.clone_url);
       if (selectedRepo.default_branch) setBranch(selectedRepo.default_branch);
       setDeploymentSource('github');
-      
-      // Trigger detection immediately on selection
-      runDetection('github', url);
+      runDetection('github', selectedRepo.clone_url);
     }
   };
 
   const handleUrlBlur = () => {
-    // Trigger detection when user leaves the URL field
     if (githubRepo && githubRepo.startsWith('http')) {
         runDetection('github', githubRepo);
     }
@@ -192,8 +215,6 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
       }
       setUploadedFile(file);
       setStatus({ type: 'success', message: `✅ File selected: ${file.name}` });
-      
-      // Trigger detection immediately on upload
       runDetection('local', file);
     }
   };
@@ -212,6 +233,7 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
 
     try {
       if (deploymentSource === 'github' || deploymentSource === 'github-repo') {
+        // --- GitHub Deployment ---
         const deploymentData = {
           projectName,
           githubRepo,
@@ -232,39 +254,10 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
         });
 
         if (!response.ok) throw new Error('Failed to start deployment');
+        await processStreamResponse(response);
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                if (data.type === 'log' || data.type === 'info') addLog('info', data.message);
-                else if (data.type === 'success') addLog('success', data.message);
-                else if (data.type === 'error') addLog('error', data.message);
-                else if (data.type === 'done') {
-                  if (data.success) {
-                    setStatus({ type: 'success', message: '✅ Deployment successful!' });
-                    onDeploy(data.deployment);
-                  } else {
-                    setStatus({ type: 'error', message: `❌ Deployment failed: ${data.error}` });
-                  }
-                }
-              } catch (e) { console.error('Parse error:', e); }
-            }
-          }
-        }
       } else {
-        // Local ZIP logic
+        // --- Local ZIP Deployment ---
         addLog('info', '📁 Uploading ZIP file...');
         const formData = new FormData();
         formData.append('file', uploadedFile);
@@ -277,9 +270,18 @@ function DeploymentForm({ onDeploy, githubLoggedIn, githubUser }) {
         formData.append('autoRestart', autoRestart.toString());
 
         const response = await axios.post(`${API_BASE}/api/deploy-local`, formData, { withCredentials: true });
-        if (response.data) {
-            setStatus({ type: 'success', message: '✅ Deployment successful!' });
-            onDeploy(response.data);
+        
+        if (response.data && response.data.id) {
+            addLog('success', '✅ Upload successful! Queuing build...');
+            const deploymentId = response.data.id;
+            
+            // Connect to the stream endpoint for this deployment
+            const streamResponse = await fetch(`${API_BASE}/api/deployments/${deploymentId}/stream`, {
+              credentials: 'include'
+            });
+            
+            if (!streamResponse.ok) throw new Error('Failed to connect to log stream');
+            await processStreamResponse(streamResponse);
         }
       }
     } catch (error) {

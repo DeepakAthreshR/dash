@@ -8,7 +8,7 @@ psutil==5.9.6
 python-dotenv==1.0.0
 werkzeug==3.0.0
 PyGithub==2.3.0
-psycopg2-binary==2.9.9
 flask-limiter==3.5.0
 redis==5.0.1
 SQLAlchemy==2.0.23
+rq==1.15.0
